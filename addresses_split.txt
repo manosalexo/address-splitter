@@ -1,58 +1,103 @@
-Sub Extract_addresses()
-    Dim sh As Worksheet, wCell As Range, rng As Range
-    Dim wWords As Variant, wPal As String, cad As String
-    Dim w As Double, k As Double, num As Boolean
-    
-    Set sh = Sheets("addresses_split")
-    Set rng = sh.Range("A2", sh.Range("A" & Rows.Count).End(xlUp))
-    
-    For Each wCell In rng
-        num = False
-        cad = ""
-        wWords = Split(wCell, " ")
-        For w = LBound(wWords) To UBound(wWords)
-            wPal = wWords(w)
-        
-            If IsNumeric(wPal) Then
-                'first number
-                num = True
-                cad = cad & wPal & " "
-            Else
-                If cad = "" Then
-                    'first word
-                    cad = cad & wPal & " "
+Sub Extract_Addresses()
+    Dim sheet As Worksheet, cell As Range, dataRange As Range
+    Dim words As Variant, currentWord As String
+    Dim streetPart As String, cityPart As String
+    Dim i As Long, charIndex As Long
+    Dim numberFound As Boolean
+
+    On Error GoTo ErrorHandler
+
+    Set sheet = Sheets("addresses_split")
+    If sheet.Range("A2").Value = "" Then
+        MsgBox "No data found in column A.", vbExclamation
+        Exit Sub
+    End If
+
+    Set dataRange = sheet.Range("A2", sheet.Range("A" & Rows.Count).End(xlUp))
+
+    For Each cell In dataRange
+        If Trim(cell.Value) = "" Then GoTo NextCell
+
+        numberFound = False
+        streetPart = ""
+        cityPart = ""
+
+        Dim rawAddress As String
+        rawAddress = Trim(cell.Value)
+
+        ' Handle comma-separated format: "Street Number, PostalCode City"
+        Dim commaParts As Variant
+        commaParts = Split(rawAddress, ",")
+
+        If UBound(commaParts) >= 1 Then
+            streetPart = Trim(commaParts(0))
+            cityPart = Trim(commaParts(1))
+            ' Remove postal code from city part if present (5-digit Greek postal code)
+            If Len(cityPart) >= 6 Then
+                Dim postalCandidate As String
+                postalCandidate = Left(cityPart, 5)
+                If IsNumeric(Replace(postalCandidate, " ", "")) Then
+                    cityPart = Trim(Mid(cityPart, 6))
+                End If
+            End If
+        Else
+            ' No comma: parse by finding the number boundary
+            words = Split(rawAddress, " ")
+            For i = LBound(words) To UBound(words)
+                currentWord = words(i)
+
+                If IsNumeric(currentWord) Then
+                    numberFound = True
+                    streetPart = streetPart & currentWord & " "
                 Else
-                    'first number with letter
-                    For k = 1 To Len(wPal)
-                        If Mid(wPal, k, 1) Like "[0-9]" Then
-                            cad = cad & wPal & " "
-                            num = True
+                    If Not numberFound Then
+                        streetPart = streetPart & currentWord & " "
+                    Else
+                        ' After the number: check for letter suffix (e.g. "12A")
+                        Dim hasDigit As Boolean
+                        hasDigit = False
+                        For charIndex = 1 To Len(currentWord)
+                            If Mid(currentWord, charIndex, 1) Like "[0-9]" Then
+                                hasDigit = True
+                                Exit For
+                            End If
+                        Next
+                        If hasDigit Or Len(currentWord) = 1 Then
+                            streetPart = streetPart & currentWord & " "
+                        End If
+                        Exit For
+                    End If
+                End If
+
+                ' Check if current word contains digits (e.g. "12A")
+                If Not numberFound And i > LBound(words) Then
+                    For charIndex = 1 To Len(currentWord)
+                        If Mid(currentWord, charIndex, 1) Like "[0-9]" Then
+                            numberFound = True
                             Exit For
                         End If
                     Next
-
-
-                    If num = True Then
-                        'next single letter
-                        If Len(wPal) = 1 Then
-                            cad = cad & wPal & " "
-                        End If
-                        Exit For
-                    Else
-                        'word without number
-                        cad = cad & wPal & " "
-                    End If
                 End If
+            Next
+
+            streetPart = WorksheetFunction.Trim(streetPart)
+
+            If Len(streetPart) < Len(rawAddress) Then
+                cityPart = Trim(Mid(rawAddress, Len(streetPart) + 2))
+            Else
+                cityPart = ""
             End If
-        Next
-        cad = WorksheetFunction.Trim(cad)
-        wCell.Offset(0, 1) = cad
-        cad = Mid(wCell, Len(cad) + 2)
-        wCell.Offset(0, 2) = cad
+        End If
+
+        cell.Offset(0, 1).Value = streetPart
+        cell.Offset(0, 2).Value = cityPart
+
+NextCell:
     Next
-    
-    MsgBox "End"
-    
+
+    MsgBox "Address extraction complete.", vbInformation
+    Exit Sub
+
+ErrorHandler:
+    MsgBox "Error " & Err.Number & ": " & Err.Description, vbCritical
 End Sub
-
-
